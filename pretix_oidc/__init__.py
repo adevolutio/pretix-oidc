@@ -15,7 +15,9 @@ class PluginApp(PluginConfig):
     class PretixPluginMeta:
         name = gettext_lazy("Mozilla OIDC Auth Backend")
         author = "Evolutio"
-        description = gettext_lazy("This is a plugin for pretix that provides a pluggable authentication backend for OIDC servers.")
+        description = gettext_lazy(
+            "This is a plugin for pretix that provides a pluggable authentication backend for OIDC servers."
+        )
         visible = True
         version = __version__
         category = "INTEGRATION"

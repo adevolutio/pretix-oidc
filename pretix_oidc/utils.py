@@ -1,14 +1,9 @@
-import base64
-import hashlib
 import logging
 import time
 import warnings
+from pretix.settings import config
 from urllib.request import parse_http_list, parse_keqv_list
 
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
-from pretix.settings import config
-from django.utils.translation import gettext_lazy as _
 LOGGER = logging.getLogger(__name__)
 
 
@@ -28,7 +23,7 @@ def import_from_settings(attr, *args):
     :raises:
         ImproperlyConfigured
     """
-    plugin = 'pretix_oidc'
+    plugin = "pretix_oidc"
     # return config.get('pretix_oidc', 'cas_server_name', fallback=_('Keycloack UPorto'))
     # try:
     if args:
@@ -54,7 +49,7 @@ def is_authenticated(user):
     as a callable method.
     """
 
-    msg = '`is_authenticated()` is going to be removed in mozilla-django-oidc v 2.x'
+    msg = "`is_authenticated()` is going to be removed in mozilla-django-oidc v 2.x"
     warnings.warn(msg, DeprecationWarning)
     return user.is_authenticated
 
@@ -67,7 +62,7 @@ def add_state_and_nonce_to_session(request, state, params):
     To keep the session space to a reasonable size, the dictionary is kept at 50 state/nonce
     combinations maximum.
     """
-    nonce = params.get('nonce')
+    nonce = params.get("nonce")
 
     # Store Nonce with the State parameter in the session "oidc_states" dictionary.
     # The dictionary can store multiple State/Nonce combinations to allow parallel
@@ -75,46 +70,31 @@ def add_state_and_nonce_to_session(request, state, params):
     # The "oidc_states" dictionary uses the state as key and as value a dictionary with "nonce"
     # and "added_on". "added_on" contains the time when the state was added to the session.
     # With this value, the oldest element can be found and deleted from the session.
-    if 'oidc_states' not in request.session or \
-            not isinstance(request.session['oidc_states'], dict):
-        request.session['oidc_states'] = {}
+    if "oidc_states" not in request.session or not isinstance(
+        request.session["oidc_states"], dict
+    ):
+        request.session["oidc_states"] = {}
 
     # Make sure that the State/Nonce dictionary in the session does not get too big.
     # If the number of State/Nonce combinations reaches a certain threshold, remove the oldest
     # state by finding out
     # which element has the oldest "add_on" time.
-    limit = import_from_settings('OIDC_MAX_STATES', 50)
-    if len(request.session['oidc_states']) >= limit:
+    limit = import_from_settings("OIDC_MAX_STATES", 50)
+    if len(request.session["oidc_states"]) >= limit:
         LOGGER.info(
             'User has more than {} "oidc_states" in his session, '
-            'deleting the oldest one!'.format(limit)
+            "deleting the oldest one!".format(limit)
         )
         oldest_state = None
         oldest_added_on = time.time()
-        for item_state, item in request.session['oidc_states'].items():
-            if item['added_on'] < oldest_added_on:
+        for item_state, item in request.session["oidc_states"].items():
+            if item["added_on"] < oldest_added_on:
                 oldest_state = item_state
-                oldest_added_on = item['added_on']
+                oldest_added_on = item["added_on"]
         if oldest_state:
-            del request.session['oidc_states'][oldest_state]
+            del request.session["oidc_states"][oldest_state]
 
-    request.session['oidc_states'][state] = {
-        'nonce': nonce,
-        'added_on': time.time(),
+    request.session["oidc_states"][state] = {
+        "nonce": nonce,
+        "added_on": time.time(),
     }
-
-
-def default_username_algo(email):
-    """Generate username for the Django user.
-    :arg str/unicode email: the email address to use to generate a username
-    :returns: str/unicode
-    """
-    # bluntly stolen from django-browserid
-    # store the username as a base64 encoded sha224 of the email address
-    # this protects against data leakage because usernames are often
-    # treated as public identifiers (so we can't use the email address).
-    username = base64.urlsafe_b64encode(
-        hashlib.sha1(force_bytes(email)).digest()
-    ).rstrip(b'=')
-
-    return smart_str(username)
