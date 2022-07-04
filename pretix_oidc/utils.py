@@ -1,13 +1,14 @@
+import base64
+import hashlib
 import logging
 import time
 import warnings
+from urllib.request import parse_http_list, parse_keqv_list
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-
-from urllib.request import parse_http_list, parse_keqv_list
-
-
+from pretix.settings import config
+from django.utils.translation import gettext_lazy as _
 LOGGER = logging.getLogger(__name__)
 
 
@@ -22,17 +23,21 @@ def parse_www_authenticate_header(header):
 
 def import_from_settings(attr, *args):
     """
-    Load an attribute from the django settings.
+    Load an attribute from pretix.cfg settings.
 
     :raises:
         ImproperlyConfigured
     """
-    try:
-        if args:
-            return getattr(settings, attr, args[0])
-        return getattr(settings, attr)
-    except AttributeError:
-        raise ImproperlyConfigured('Setting {0} not found'.format(attr))
+    plugin = 'pretix_oidc'
+    # return config.get('pretix_oidc', 'cas_server_name', fallback=_('Keycloack UPorto'))
+    # try:
+    if args:
+        return config.get(plugin, attr, fallback=args[0])
+        # return getattr(settings, attr, args[0])
+    # return getattr(settings, attr)
+    return config.get(plugin, attr)
+    # except AttributeError:
+    #     raise ImproperlyConfigured('Setting {0} not found'.format(attr))
 
 
 def absolutify(request, path):
@@ -97,3 +102,19 @@ def add_state_and_nonce_to_session(request, state, params):
         'nonce': nonce,
         'added_on': time.time(),
     }
+
+
+def default_username_algo(email):
+    """Generate username for the Django user.
+    :arg str/unicode email: the email address to use to generate a username
+    :returns: str/unicode
+    """
+    # bluntly stolen from django-browserid
+    # store the username as a base64 encoded sha224 of the email address
+    # this protects against data leakage because usernames are often
+    # treated as public identifiers (so we can't use the email address).
+    username = base64.urlsafe_b64encode(
+        hashlib.sha1(force_bytes(email)).digest()
+    ).rstrip(b'=')
+
+    return smart_str(username)

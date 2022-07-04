@@ -1,7 +1,3 @@
-# import cas
-
-import base64
-import hashlib
 import json
 import logging
 
@@ -23,23 +19,9 @@ from pretix.plugins.pretix_oidc.utils import absolutify, import_from_settings
 from pretix.settings import config
 from requests.auth import HTTPBasicAuth
 
+from pretix_oidc.utils import default_username_algo
+
 LOGGER = logging.getLogger(__name__)
-
-
-def default_username_algo(email):
-    """Generate username for the Django user.
-    :arg str/unicode email: the email address to use to generate a username
-    :returns: str/unicode
-    """
-    # bluntly stolen from django-browserid
-    # store the username as a base64 encoded sha224 of the email address
-    # this protects against data leakage because usernames are often
-    # treated as public identifiers (so we can't use the email address).
-    username = base64.urlsafe_b64encode(
-        hashlib.sha1(force_bytes(email)).digest()
-    ).rstrip(b'=')
-
-    return smart_str(username)
 
 
 class OIDCAuthBackend(BaseAuthBackend):
@@ -72,14 +54,12 @@ class OIDCAuthBackend(BaseAuthBackend):
 
         self.UserModel = User
 
-    """
-    A human-readable name of this authentication backend.
-    """
-
     @property
     def verbose_name(self):
-        return config.get('pretix_cas', 'cas_server_name',
-                          fallback=_('Keycloack UPorto'))
+        """
+        A human-readable name of this authentication backend.
+        """
+        return config.get('pretix_oidc', 'cas_server_name', fallback=_('Keycloack UPorto'))
 
     def authentication_url(self, request):
         """
@@ -302,21 +282,21 @@ class OIDCAuthBackend(BaseAuthBackend):
             return redirect(reverse('control:auth.login'))
         return u
 
-        if len(users) == 1:
-            return self.update_user(users[0], user_info)
-        elif len(users) > 1:
-            # In the rare case that two user accounts have the same email address,
-            # bail. Randomly selecting one seems really wrong.
-            msg = 'Multiple users returned'
-            raise SuspiciousOperation(msg)
-        elif self.get_settings('OIDC_CREATE_USER', True):
-            user = self.create_user(user_info)
-            return user
-        else:
-            LOGGER.debug('Login failed: No user with %s found, and '
-                         'OIDC_CREATE_USER is False',
-                         self.describe_user_by_claims(user_info))
-            return None
+        # if len(users) == 1:
+        #     return self.update_user(users[0], user_info)
+        # elif len(users) > 1:
+        #     # In the rare case that two user accounts have the same email address,
+        #     # bail. Randomly selecting one seems really wrong.
+        #     msg = 'Multiple users returned'
+        #     raise SuspiciousOperation(m   sg)
+        # elif self.get_settings('OIDC_CREATE_USER', True):
+        #     user = self.create_user(user_info)
+        #     return user
+        # else:
+        #     LOGGER.debug('Login failed: No user with %s found, and '
+        #                  'OIDC_CREATE_USER is False',
+        #                  self.describe_user_by_claims(user_info))
+        #     return None
 
     def get_userinfo(self, access_token, id_token, payload):
         """Return user details dictionary. The id_token and payload are not used in
@@ -353,29 +333,29 @@ class OIDCAuthBackend(BaseAuthBackend):
             return self.UserModel.objects.none()
         return self.UserModel.objects.filter(email__iexact=email)
 
-    def update_user(self, user, claims):
-        """Update existing user with new claims, if necessary save, and return user"""
-        return user
-
-    def create_user(self, claims):
-        """Return object for a newly created user account."""
-        email = claims.get('email')
-        username = self.get_username(claims)
-        return self.UserModel.objects.create_user(username, email=email)
-
-    def get_username(self, claims):
-        """Generate username based on claims."""
-        # bluntly stolen from django-browserid
-        # https://github.com/mozilla/django-browserid/blob/master/django_browserid/auth.py
-        username_algo = self.get_settings('OIDC_USERNAME_ALGO', None)
-
-        if username_algo:
-            if isinstance(username_algo, str):
-                username_algo = import_string(username_algo)
-            return username_algo(claims.get('email'))
-
-        return default_username_algo(claims.get('email'))
-
-    def describe_user_by_claims(self, claims):
-        email = claims.get('email')
-        return 'email {}'.format(email)
+    # def update_user(self, user, claims):
+    #     """Update existing user with new claims, if necessary save, and return user"""
+    #     return user
+    # 
+    # def create_user(self, claims):
+    #     """Return object for a newly created user account."""
+    #     email = claims.get('email')
+    #     username = self.get_username(claims)
+    #     return self.UserModel.objects.create_user(username, email=email)
+    # 
+    # def get_username(self, claims):
+    #     """Generate username based on claims."""
+    #     # bluntly stolen from django-browserid
+    #     # https://github.com/mozilla/django-browserid/blob/master/django_browserid/auth.py
+    #     username_algo = self.get_settings('OIDC_USERNAME_ALGO', None)
+    # 
+    #     if username_algo:
+    #         if isinstance(username_algo, str):
+    #             username_algo = import_string(username_algo)
+    #         return username_algo(claims.get('email'))
+    # 
+    #     return default_username_algo(claims.get('email'))
+    # 
+    # def describe_user_by_claims(self, claims):
+    #     email = claims.get('email')
+    #     return 'email {}'.format(email)
