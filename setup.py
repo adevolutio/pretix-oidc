@@ -6,10 +6,9 @@ from setuptools import find_packages, setup
 
 from pretix_oidc import __version__
 
-
 try:
     with open(
-        os.path.join(os.path.dirname(__file__), "README.rst"), encoding="utf-8"
+            os.path.join(os.path.dirname(__file__), "README.rst"), encoding="utf-8"
     ) as f:
         long_description = f.read()
 except Exception:
@@ -24,13 +23,12 @@ class CustomBuild(build):
 
 cmdclass = {"build": CustomBuild}
 
-
 setup(
-    name="pretix-oidc",
+    name="pretix-keycloak-oidc",
     version=__version__,
-    description="This is a plugin for pretix that provides a pluggable authentication backend for OIDC servers.",
+    description="This is a plugin for pretix that provides a pluggable OIDC authentication backend for keycloak servers.",
     long_description=long_description,
-    url="https://github.com/mozilla/mozilla-django-oidc",
+    url="https://github.com/adevolutio/pretix-oidc",
     author="Evolutio",
     author_email="jpolonia@evolutio.pt",
     license="Apache",

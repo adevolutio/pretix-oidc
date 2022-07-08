@@ -1,17 +1,18 @@
 import json
 import logging
+
 import requests
 from django.contrib import messages
 from django.core.exceptions import ImproperlyConfigured, SuspiciousOperation
-from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.encoding import force_bytes, smart_bytes, smart_str
 from django.utils.translation import gettext_lazy as _
+from django_scopes import scopes_disabled
 from josepy.b64 import b64decode
 from josepy.jwk import JWK
 from josepy.jws import JWS, Header
 from pretix.base.auth import BaseAuthBackend
-from pretix.base.models import User
+from pretix.base.models import User, Organizer, Team, Event
 from pretix.base.models.auth import EmailAddressTakenError
 from pretix.settings import config
 from requests.auth import HTTPBasicAuth
@@ -44,7 +45,7 @@ class OIDCAuthBackend(BaseAuthBackend):
         self.OIDC_RP_IDP_SIGN_KEY = self.get_settings("OIDC_RP_IDP_SIGN_KEY", None)
 
         if self.OIDC_RP_SIGN_ALGO.startswith("RS") and (
-            self.OIDC_RP_IDP_SIGN_KEY is None and self.OIDC_OP_JWKS_ENDPOINT is None
+                self.OIDC_RP_IDP_SIGN_KEY is None and self.OIDC_OP_JWKS_ENDPOINT is None
         ):
             msg = "{} alg requires OIDC_RP_IDP_SIGN_KEY or OIDC_OP_JWKS_ENDPOINT to be configured."
             raise ImproperlyConfigured(msg.format(self.OIDC_RP_SIGN_ALGO))
@@ -266,12 +267,45 @@ class OIDCAuthBackend(BaseAuthBackend):
         # email based filtering
         # users = self.filter_users_by_claims(user_info)
 
+        # messages.error(self.request,
+        #                _("Error: sub missing from keycloak roles"), )
+        # return None
+
+        try:
+            email = user_info["email"]
+        except KeyError:
+            messages.error(self.request,
+                           _("Error: Email missing from keycloak roles"), )
+            return None
+
+        try:
+            pk = user_info["sub"]
+        except KeyError:
+            messages.error(self.request,
+                           _("Error: sub missing from keycloak roles"), )
+            return None
+
+        try:
+            username = user_info["preferred_username"]
+        except KeyError:
+            username = user_info["email"]
+
+        new_roles = set(user_info['roles']) if user_info['roles'] else set()
+        if 'si-gestor-eventos-admin' in new_roles:
+            is_staff = True
+            new_roles.remove('si-gestor-eventos-admin')
+        else:
+            is_staff = False
+
         try:
             u = User.objects.get_or_create_for_backend(
                 "keycloak_auth",
-                user_info["sub"],
-                user_info["email"],
-                set_always={},
+                pk,
+                email,
+                set_always={
+                    'is_staff': is_staff,
+                    'fullname': username,
+                },
                 set_on_creation={},
             )
         except EmailAddressTakenError:
@@ -282,7 +316,129 @@ class OIDCAuthBackend(BaseAuthBackend):
                     "already exists with the same email address."
                 ),
             )
-            return redirect(reverse("control:auth.login"))
+            return None
+
+        # Update Organizer Units from Roles
+        prev_roles = set(Organizer.objects.filter(
+            id__in=u.teams.filter(name="Managing Units").values_list('organizer',
+                                                                     flat=True)
+        ).values_list('slug', flat=True))
+
+        api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token")
+
+        if prev_roles != new_roles:
+            for role in set(new_roles):
+                # Add new roles
+                obj, created = Organizer.objects.get_or_create(slug=role, name=role)
+
+                if not created:
+                    # Check if has Manager Unit team
+                    try:
+                        t = Team.objects.get(organizer=obj, name='Managing Units')
+                        t.members.add(u)
+                        continue  # Team is setted correctly
+                    except Team.DoesNotExist:
+                        pass
+                    except Team.MultipleObjectsReturned:
+                        pass
+                    # Fix teams
+                    for team in obj.teams.exclude(name=api_team):
+                        team.delete()
+
+                # Create main team that materializes a Managing Unit from Event Manager
+                t = Team.objects.create(
+                    organizer=obj, name='Managing Units',
+                    all_events=True, can_create_events=True, can_change_teams=True,
+                    can_manage_gift_cards=True,
+                    can_change_organizer_settings=True,
+                    can_change_event_settings=True,
+                    can_change_items=True,
+                    can_manage_customers=True,
+                    can_view_orders=True, can_change_orders=True,
+                    can_view_vouchers=True, can_change_vouchers=True
+                )
+                t.members.add(u)
+
+            for role in prev_roles - new_roles:
+                # Remove user from removed roles
+                obj = Organizer.objects.get(slug=role)
+
+                # Check if has Manager Unit team
+                try:
+                    t = Team.objects.get(organizer=obj, name='Managing Units')
+                    t.members.remove(u)
+                    continue  # Team is removed correctly
+                except Team.DoesNotExist:
+                    pass
+                except Team.MultipleObjectsReturned:
+                    pass
+                # Fix teams
+                for team in obj.teams.exclude(name=api_team):
+                    team.delete()
+
+        # Update non Mananging Unit Event Manager
+        url = self.get_settings("UP_EVENT_MANAGER_API",
+                                "https://eventos.dev.uporto.pt/backoffice/api/user")
+        url = f"{url}/{u.auth_backend_identifier}/"
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/javascript',
+            'Authorization': f"Token {self.get_settings('UP_EVENT_MANAGER_TOKEN', None)}"
+        }
+        try:
+            r = requests.get(url, headers=headers)
+        except requests.exceptions.RequestException as error:
+            messages.error(self.request, _(f"Error API Gestor Eventos: {error}"))
+            return None
+
+        if r.status_code == 404:
+            messages.error(self.request,
+                           _("Error API Gestor Eventos 404: User hash não existe no Gestor de Eventos"), )
+        elif r.status_code != 200:
+            messages.error(self.request,
+                           f"Error API Gestor Eventos {r.status_code} - {r.reason}")
+            return None
+
+        events = r.json()
+
+        # Remove user from all other non Mananging Unit Event Manager
+        # (By deleting them since they are single user Teams)
+        u.teams.exclude(name='Managing Units').delete()
+
+        for slug in events:
+            # Get Event
+            try:
+                with scopes_disabled():
+                    event = Event.objects.get(slug=slug)
+
+            except Event.DoesNotExist:
+                messages.error(self.request,
+                               f"Event {slug} from Gestor de Eventos UP does not exist on Pretix")
+                return None
+
+            try:
+                t = Team.objects.get(organizer=obj, name=f'Manager of {slug}')
+                t.members.add(u)
+                continue
+            except Team.MultipleObjectsReturned:
+                pass
+            except Team.DoesNotExist:
+                pass
+            t = Team.objects.create(
+                organizer=obj, name=f'Manager of {slug}',
+                all_events=False, can_create_events=False, can_change_teams=False,
+                can_manage_gift_cards=True,
+                can_change_organizer_settings=False,
+                can_change_event_settings=True,
+                can_change_items=True,
+                can_manage_customers=True,
+                can_view_orders=True, can_change_orders=True,
+                can_view_vouchers=True, can_change_vouchers=True
+            )
+            t.limit_events.add(event)
+            t.members.add(u)
+
         return u
 
     def get_userinfo(self, access_token, id_token, payload):

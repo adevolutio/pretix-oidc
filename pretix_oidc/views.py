@@ -1,12 +1,12 @@
 import time
+
 from django.contrib import auth
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponseNotAllowed, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.crypto import get_random_string
-
-from ...base.auth import get_auth_backends
-from ...control.views.auth import process_login
+from pretix.base.auth import get_auth_backends
+from pretix.control.views.auth import process_login
 
 try:
     from django.utils.http import url_has_allowed_host_and_scheme
@@ -54,7 +54,7 @@ class OIDCAuthenticationCallbackView(View):
             "OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS", 60 * 15
         )
         self.request.session["oidc_id_token_expiration"] = (
-            time.time() + expiration_interval
+                time.time() + expiration_interval
         )
 
         return HttpResponseRedirect(self.success_url)
