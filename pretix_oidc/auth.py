@@ -1,13 +1,12 @@
 import json
 import logging
-
 import requests
 from django.contrib import messages
 from django.core.exceptions import ImproperlyConfigured, SuspiciousOperation
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.encoding import force_bytes, smart_bytes, smart_str
 from django.utils.translation import gettext_lazy as _
-from django_scopes import scopes_disabled
 from josepy.b64 import b64decode
 from josepy.jwk import JWK
 from josepy.jws import JWS, Header
@@ -16,8 +15,10 @@ from pretix.base.models import User, Organizer, Team, Event
 from pretix.base.models.auth import EmailAddressTakenError
 from pretix.settings import config
 from requests.auth import HTTPBasicAuth
+from django.http import Http404
 
 from .utils import absolutify, import_from_settings
+from django_scopes import scope, scopes_disabled
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class OIDCAuthBackend(BaseAuthBackend):
         self.OIDC_RP_IDP_SIGN_KEY = self.get_settings("OIDC_RP_IDP_SIGN_KEY", None)
 
         if self.OIDC_RP_SIGN_ALGO.startswith("RS") and (
-                self.OIDC_RP_IDP_SIGN_KEY is None and self.OIDC_OP_JWKS_ENDPOINT is None
+            self.OIDC_RP_IDP_SIGN_KEY is None and self.OIDC_OP_JWKS_ENDPOINT is None
         ):
             msg = "{} alg requires OIDC_RP_IDP_SIGN_KEY or OIDC_OP_JWKS_ENDPOINT to be configured."
             raise ImproperlyConfigured(msg.format(self.OIDC_RP_SIGN_ALGO))
@@ -320,8 +321,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
         # Update Organizer Units from Roles
         prev_roles = set(Organizer.objects.filter(
-            id__in=u.teams.filter(name="Managing Units").values_list('organizer',
-                                                                     flat=True)
+            id__in=u.teams.filter(name="Managing Units").values_list('organizer', flat=True)
         ).values_list('slug', flat=True))
 
         api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token")
@@ -329,14 +329,14 @@ class OIDCAuthBackend(BaseAuthBackend):
         if prev_roles != new_roles:
             for role in set(new_roles):
                 # Add new roles
-                obj, created = Organizer.objects.get_or_create(slug=role, name=role)
+                obj, created = Organizer.objects.get_or_create(slug=role, defaults={'name': role})
 
                 if not created:
                     # Check if has Manager Unit team
                     try:
                         t = Team.objects.get(organizer=obj, name='Managing Units')
                         t.members.add(u)
-                        continue  # Team is setted correctly
+                        continue # Team is setted correctly
                     except Team.DoesNotExist:
                         pass
                     except Team.MultipleObjectsReturned:
@@ -377,8 +377,7 @@ class OIDCAuthBackend(BaseAuthBackend):
                     team.delete()
 
         # Update non Mananging Unit Event Manager
-        url = self.get_settings("UP_EVENT_MANAGER_API",
-                                "https://eventos.dev.uporto.pt/backoffice/api/user")
+        url = self.get_settings("UP_EVENT_MANAGER_API", "https://eventos.dev.uporto.pt/backoffice/api/user")
         url = f"{url}/{u.auth_backend_identifier}/"
 
         headers = {
@@ -393,11 +392,9 @@ class OIDCAuthBackend(BaseAuthBackend):
             return None
 
         if r.status_code == 404:
-            messages.error(self.request,
-                           _("Error API Gestor Eventos 404: User hash não existe no Gestor de Eventos"), )
+            messages.error(self.request, _("Error API Gestor Eventos 404: User hash não existe no Gestor de Eventos"), )
         elif r.status_code != 200:
-            messages.error(self.request,
-                           f"Error API Gestor Eventos {r.status_code} - {r.reason}")
+            messages.error(self.request, f"Error API Gestor Eventos {r.status_code} - {r.reason}")
             return None
 
         events = r.json()
