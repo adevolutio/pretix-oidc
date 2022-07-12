@@ -265,13 +265,6 @@ class OIDCAuthBackend(BaseAuthBackend):
             msg = "Claims verification failed"
             raise SuspiciousOperation(msg)
 
-        # email based filtering
-        # users = self.filter_users_by_claims(user_info)
-
-        # messages.error(self.request,
-        #                _("Error: sub missing from keycloak roles"), )
-        # return None
-
         try:
             email = user_info["email"]
         except KeyError:
@@ -319,12 +312,13 @@ class OIDCAuthBackend(BaseAuthBackend):
             )
             return None
 
+        api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token - Gestor Eventos UP")
+        managing_unit_team = self.get_settings("UP_EVENT_MANAGER_MANAGING_UNIT_TEAM", "Managing Unit")
+
         # Update Organizer Units from Roles
         prev_roles = set(Organizer.objects.filter(
-            id__in=u.teams.filter(name="Managing Units").values_list('organizer', flat=True)
+            id__in=u.teams.filter(name=managing_unit_team).values_list('organizer', flat=True)
         ).values_list('slug', flat=True))
-
-        api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token")
 
         if prev_roles != new_roles:
             for role in set(new_roles):
@@ -334,7 +328,7 @@ class OIDCAuthBackend(BaseAuthBackend):
                 if not created:
                     # Check if has Manager Unit team
                     try:
-                        t = Team.objects.get(organizer=obj, name='Managing Units')
+                        t = Team.objects.get(organizer=obj, name=managing_unit_team)
                         t.members.add(u)
                         continue # Team is setted correctly
                     except Team.DoesNotExist:
@@ -347,7 +341,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
                 # Create main team that materializes a Managing Unit from Event Manager
                 t = Team.objects.create(
-                    organizer=obj, name='Managing Units',
+                    organizer=obj, name=managing_unit_team,
                     all_events=True, can_create_events=True, can_change_teams=True,
                     can_manage_gift_cards=True,
                     can_change_organizer_settings=True,
@@ -365,7 +359,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
                 # Check if has Manager Unit team
                 try:
-                    t = Team.objects.get(organizer=obj, name='Managing Units')
+                    t = Team.objects.get(organizer=obj, name=managing_unit_team)
                     t.members.remove(u)
                     continue  # Team is removed correctly
                 except Team.DoesNotExist:
@@ -402,7 +396,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
         # Remove user from all other non Mananging Unit Event Manager
         # (By deleting them since they are single user Teams)
-        u.teams.exclude(name='Managing Units').delete()
+        u.teams.exclude(name=managing_unit_team).delete()
 
         for slug in events:
             # Get Event
