@@ -393,6 +393,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
         if r.status_code == 404:
             messages.error(self.request, _("Error API Gestor Eventos 404: User hash não existe no Gestor de Eventos"), )
+            return None
         elif r.status_code != 200:
             messages.error(self.request, f"Error API Gestor Eventos {r.status_code} - {r.reason}")
             return None
