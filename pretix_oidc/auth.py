@@ -403,14 +403,15 @@ class OIDCAuthBackend(BaseAuthBackend):
             try:
                 with scopes_disabled():
                     event = Event.objects.get(slug=slug)
-
             except Event.DoesNotExist:
                 messages.error(self.request,
                                f"Event {slug} from Gestor de Eventos UP does not exist on Pretix")
                 return None
 
+
+
             try:
-                t = Team.objects.get(organizer=obj, name=f'Manager of {slug}')
+                t = Team.objects.get(organizer=event.orgnaizer, name=f'Manager of {slug}')
                 t.members.add(u)
                 continue
             except Team.MultipleObjectsReturned:
@@ -418,7 +419,7 @@ class OIDCAuthBackend(BaseAuthBackend):
             except Team.DoesNotExist:
                 pass
             t = Team.objects.create(
-                organizer=obj, name=f'Manager of {slug}',
+                organizer=event.orgnaizer, name=f'Manager of {slug}',
                 all_events=False, can_create_events=False, can_change_teams=False,
                 can_manage_gift_cards=True,
                 can_change_organizer_settings=False,
