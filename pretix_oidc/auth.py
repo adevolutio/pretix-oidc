@@ -411,7 +411,7 @@ class OIDCAuthBackend(BaseAuthBackend):
 
 
             try:
-                t = Team.objects.get(organizer=event.orgnaizer, name=f'Manager of {slug}')
+                t = Team.objects.get(organizer=event.organizer, name=f'Manager of {slug}')
                 t.members.add(u)
                 continue
             except Team.MultipleObjectsReturned:
@@ -419,7 +419,7 @@ class OIDCAuthBackend(BaseAuthBackend):
             except Team.DoesNotExist:
                 pass
             t = Team.objects.create(
-                organizer=event.orgnaizer, name=f'Manager of {slug}',
+                organizer=event.organizer, name=f'Manager of {slug}',
                 all_events=False, can_create_events=False, can_change_teams=False,
                 can_manage_gift_cards=True,
                 can_change_organizer_settings=False,
