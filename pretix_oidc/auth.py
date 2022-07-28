@@ -406,9 +406,7 @@ class OIDCAuthBackend(BaseAuthBackend):
             except Event.DoesNotExist:
                 messages.error(self.request,
                                f"Event {slug} from Gestor de Eventos UP does not exist on Pretix")
-                return None
-
-
+                return u
 
             try:
                 t = Team.objects.get(organizer=event.organizer, name=f'Manager of {slug}')
