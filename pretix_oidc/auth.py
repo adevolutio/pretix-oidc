@@ -312,63 +312,80 @@ class OIDCAuthBackend(BaseAuthBackend):
             )
             return None
 
-        api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token - Gestor Eventos UP")
-        managing_unit_team = self.get_settings("UP_EVENT_MANAGER_MANAGING_UNIT_TEAM", "Managing Unit")
+        # api_team = self.get_settings("UP_EVENT_MANAGER_API_TEAM", "API Token - Gestor Eventos UP")
+        # managing_unit_team = self.get_settings("UP_EVENT_MANAGER_MANAGING_UNIT_TEAM", "Managing Unit")
+
+        organizer_slug = self.get_settings("UP_EVENT_ORGANIZER_SLUG", "up")
+        organizer, created = Organizer.objects.get_or_create(slug=organizer_slug,
+                                                       defaults={'name': organizer_slug})
 
         # Update Organizer Units from Roles
-        prev_roles = set(Organizer.objects.filter(
-            id__in=u.teams.filter(name=managing_unit_team).values_list('organizer', flat=True)
-        ).values_list('slug', flat=True))
+        # prev_roles = set(Organizer.objects.filter(
+        #     id__in=u.teams.filter(name=managing_unit_team).values_list('organizer', flat=True)
+        # ).values_list('slug', flat=True))
+
+        prev_roles = set(u.teams.all().values_list('name', flat=True))
 
         if prev_roles != new_roles:
             for role in set(new_roles):
                 # Add new roles
-                obj, created = Organizer.objects.get_or_create(slug=role, defaults={'name': role})
+                # obj, created = Organizer.objects.get_or_create(slug=role, defaults={'name': role})
+                t, created = Team.objects.get_or_create(organizer=organizer, name=role)
 
-                if not created:
-                    # Check if has Manager Unit team
-                    try:
-                        t = Team.objects.get(organizer=obj, name=managing_unit_team)
-                        t.members.add(u)
-                        continue # Team is setted correctly
-                    except Team.DoesNotExist:
-                        pass
-                    except Team.MultipleObjectsReturned:
-                        pass
-                    # Fix teams
-                    for team in obj.teams.exclude(name=api_team):
-                        team.delete()
+                # if not created:
+                    # # Check if has Manager Unit team
+                    # try:
+                    #     t = Team.objects.get(organizer=obj, name=managing_unit_team)
+                    #     t.members.add(u)
+                    #     continue # Team is setted correctly
+                    # except Team.DoesNotExist:
+                    #     pass
+                    # except Team.MultipleObjectsReturned:
+                    #     pass
+                    # # Fix teams
+                    # for team in obj.teams.exclude(name=api_team):
+                    #     team.delete()
 
-                # Create main team that materializes a Managing Unit from Event Manager
-                t = Team.objects.create(
-                    organizer=obj, name=managing_unit_team,
-                    all_events=True, can_create_events=True, can_change_teams=True,
-                    can_manage_gift_cards=True,
-                    can_change_organizer_settings=True,
-                    can_change_event_settings=True,
-                    can_change_items=True,
-                    can_manage_customers=True,
-                    can_view_orders=True, can_change_orders=True,
-                    can_view_vouchers=True, can_change_vouchers=True
-                )
+                # # Create main team that materializes a Managing Unit from Event Manager
+                # t = Team.objects.create(
+                #     organizer=obj, name=managing_unit_team,
+                #     all_events=True, can_create_events=True, can_change_teams=True,
+                #     can_manage_gift_cards=True,
+                #     can_change_organizer_settings=True,
+                #     can_change_event_settings=True,
+                #     can_change_items=True,
+                #     can_manage_customers=True,
+                #     can_view_orders=True, can_change_orders=True,
+                #     can_view_vouchers=True, can_change_vouchers=True
+                # )
                 t.members.add(u)
 
             for role in prev_roles - new_roles:
-                # Remove user from removed roles
-                obj = Organizer.objects.get(slug=role)
-
-                # Check if has Manager Unit team
                 try:
-                    t = Team.objects.get(organizer=obj, name=managing_unit_team)
+                    t = Team.objects.get(organizer=organizer, name=role)
                     t.members.remove(u)
-                    continue  # Team is removed correctly
                 except Team.DoesNotExist:
                     pass
                 except Team.MultipleObjectsReturned:
-                    pass
-                # Fix teams
-                for team in obj.teams.exclude(name=api_team):
-                    team.delete()
+                    # Fix teams
+                    for team in organizer.teams.filter(name=role):
+                        team.delete()
+
+                # # Remove user from removed roles
+                # obj = Organizer.objects.get(slug=role)
+                #
+                # # Check if has Manager Unit team
+                # try:
+                #     t = Team.objects.get(organizer=obj, name=managing_unit_team)
+                #     t.members.remove(u)
+                #     continue  # Team is removed correctly
+                # except Team.DoesNotExist:
+                #     pass
+                # except Team.MultipleObjectsReturned:
+                #     pass
+                # # Fix teams
+                # for team in obj.teams.exclude(name=api_team):
+                #     team.delete()
 
         # Update non Mananging Unit Event Manager
         url = self.get_settings("UP_EVENT_MANAGER_API", "https://eventos.dev.uporto.pt/backoffice/api/user")
@@ -396,7 +413,11 @@ class OIDCAuthBackend(BaseAuthBackend):
 
         # Remove user from all other non Mananging Unit Event Manager
         # (By deleting them since they are single user Teams)
-        u.teams.exclude(name=managing_unit_team).delete()
+        # u.teams.exclude(name=managing_unit_team).delete()
+
+        extra_teams = u.teams.filter(name__startswith="Managers of")
+        for t in extra_teams:
+            t.remove(u)
 
         for slug in events:
             # Get Event
@@ -409,15 +430,18 @@ class OIDCAuthBackend(BaseAuthBackend):
                 return u
 
             try:
-                t = Team.objects.get(organizer=event.organizer, name=f'Manager of {slug}')
+                t = Team.objects.get(organizer=event.organizer, name=f'Managers of {slug}')
                 t.members.add(u)
                 continue
             except Team.MultipleObjectsReturned:
-                pass
+                # Fix teams
+                for team in organizer.teams.filter(name=f'Managers of {slug}'):
+                    team.delete()
             except Team.DoesNotExist:
                 pass
+
             t = Team.objects.create(
-                organizer=event.organizer, name=f'Manager of {slug}',
+                organizer=event.organizer, name=f'Managers of {slug}',
                 all_events=False, can_create_events=False, can_change_teams=False,
                 can_manage_gift_cards=True,
                 can_change_organizer_settings=False,
