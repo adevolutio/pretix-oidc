@@ -40,6 +40,33 @@ You can auto-fix some of these issues by running::
 
 To automatically check for these issues before you commit, you can run ``.install-hooks``.
 
+Docker Production setup
+-----------------
+
+1. Create a custom Docker-Image with installed plugin like described on the pretix documentation (https://docs.pretix.eu/en/latest/admin/installation/docker_smallscale.html#install-a-plugin)
+   This is an example Dockerfile::
+       FROM pretix/standalone:stable
+       USER root
+       RUN pip3 install pretix-keycloak-oidc
+       USER pretixuser
+       RUN cd /pretix/src && make production
+
+   Now build the new Image with the following command:
+   ``$ docker build . -t mypretix``
+
+2. Start your Docker-Container
+
+3. Edit the pretix.cfg
+   Add the following Section::
+       [pretix_oidc]
+       OIDC_OP_TOKEN_ENDPOINT=https://add_your_url.dev/realms/your_realm/protocol/openid-connect/token
+       OIDC_OP_USER_ENDPOINT=https://add_your_url.dev/realms/your_realm/protocol/openid-connect/userinfo
+       OIDC_OP_JWKS_ENDPOINT=https://add_your_url.dev/realms/your_realm/protocol/openid-connect/certs
+       OIDC_RP_CLIENT_ID=name_of_your_client
+       OIDC_RP_CLIENT_SECRET=your*****client******secret
+       OIDC_RP_SIGN_ALGO=RS256
+       OIDC_RP_IDP_SIGN_KEY=
+    
 
 License
 -------
